@@ -7,7 +7,8 @@
 #include <termios.h>
 #include <chrono>
 #include <thread>
-#include <pigpio.h>
+#include <gpiod.h>
+#include <cstring>
 
 // ADS1115 Register addresses
 #define ADS1115_REG_CONVERSION  0x00
@@ -29,7 +30,16 @@ DryerHardware::DryerHardware()
     , initialized(false)
     , ads1115Available(false)
     , midiAvailable(false)
+    , gpioChip(nullptr)
 {
+    // Initialize GPIO line pointers
+    for (int i = 0; i < 3; i++) {
+        gpioInputLines[i] = nullptr;
+    }
+    for (int i = 0; i < 2; i++) {
+        gpioOutputLines[i] = nullptr;
+    }
+    
     trigger1State.active = false;
     trigger2State.active = false;
 }
@@ -40,12 +50,6 @@ DryerHardware::~DryerHardware() {
 
 bool DryerHardware::initialize() {
     std::cout << "Initializing Dryer hardware..." << std::endl;
-    
-    // Initialize pigpio library
-    if (gpioInitialise() < 0) {
-        std::cerr << "ERROR: Failed to initialize pigpio" << std::endl;
-        return false;
-    }
     
     // Initialize components
     bool gpioOk = initGPIO();
@@ -88,29 +92,70 @@ void DryerHardware::shutdown() {
         uartHandle = -1;
     }
     
-    // Cleanup GPIO
-    gpioTerminate();
+    // Release GPIO lines
+    for (int i = 0; i < 3; i++) {
+        if (gpioInputLines[i]) {
+            gpiod_line_release(gpioInputLines[i]);
+            gpioInputLines[i] = nullptr;
+        }
+    }
+    for (int i = 0; i < 2; i++) {
+        if (gpioOutputLines[i]) {
+            gpiod_line_release(gpioOutputLines[i]);
+            gpioOutputLines[i] = nullptr;
+        }
+    }
+    
+    // Close GPIO chip
+    if (gpioChip) {
+        gpiod_chip_close(gpioChip);
+        gpioChip = nullptr;
+    }
     
     initialized = false;
     std::cout << "Hardware shutdown complete" << std::endl;
 }
 
 bool DryerHardware::initGPIO() {
-    // Configure input pins (switches)
-    gpioSetMode(GPIO_BALL_TYPE, PI_INPUT);
-    gpioSetMode(GPIO_LINT_TRAP, PI_INPUT);
-    gpioSetMode(GPIO_MOON_GRAVITY, PI_INPUT);
+    // Open GPIO chip (gpiochip0 for Raspberry Pi)
+    gpioChip = gpiod_chip_open("/dev/gpiochip0");
+    if (!gpioChip) {
+        std::cerr << "Failed to open GPIO chip" << std::endl;
+        return false;
+    }
     
-    // Enable pull-down resistors (switch connects to 3.3V)
-    gpioSetPullUpDown(GPIO_BALL_TYPE, PI_PUD_DOWN);
-    gpioSetPullUpDown(GPIO_LINT_TRAP, PI_PUD_DOWN);
-    gpioSetPullUpDown(GPIO_MOON_GRAVITY, PI_PUD_DOWN);
+    // Configure input pins (switches)
+    const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
+    for (int i = 0; i < 3; i++) {
+        gpioInputLines[i] = gpiod_chip_get_line(gpioChip, inputPins[i]);
+        if (!gpioInputLines[i]) {
+            std::cerr << "Failed to get GPIO line " << inputPins[i] << std::endl;
+            return false;
+        }
+        
+        // Request as input with pull-down
+        if (gpiod_line_request_input_flags(gpioInputLines[i], "dryer", 
+                                           GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN) < 0) {
+            std::cerr << "Failed to request input line " << inputPins[i] << std::endl;
+            return false;
+        }
+    }
     
     // Configure output pins (triggers)
-    gpioSetMode(GPIO_TRIGGER_OUT_1, PI_OUTPUT);
-    gpioSetMode(GPIO_TRIGGER_OUT_2, PI_OUTPUT);
-    gpioWrite(GPIO_TRIGGER_OUT_1, 0);
-    gpioWrite(GPIO_TRIGGER_OUT_2, 0);
+    const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
+    for (int i = 0; i < 2; i++) {
+        gpioOutputLines[i] = gpiod_chip_get_line(gpioChip, outputPins[i]);
+        if (!gpioOutputLines[i]) {
+            std::cerr << "Failed to get GPIO line " << outputPins[i] << std::endl;
+            return false;
+        }
+        
+        // Request as output, initially low
+        if (gpiod_line_request_output(gpioOutputLines[i], "dryer", 0) < 0) {
+            std::cerr << "Failed to request output line " << outputPins[i] << std::endl;
+            return false;
+        }
+    }
     
     return true;
 }
@@ -231,11 +276,25 @@ uint16_t DryerHardware::readADC(uint8_t channel) {
 }
 
 bool DryerHardware::readGPIO(int pin) {
-    return gpioRead(pin) == 1;
+    // Map pin number to line index
+    const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
+    for (int i = 0; i < 3; i++) {
+        if (inputPins[i] == pin && gpioInputLines[i]) {
+            return gpiod_line_get_value(gpioInputLines[i]) == 1;
+        }
+    }
+    return false;
 }
 
 void DryerHardware::writeGPIO(int pin, bool value) {
-    gpioWrite(pin, value ? 1 : 0);
+    // Map pin number to line index
+    const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
+    for (int i = 0; i < 2; i++) {
+        if (outputPins[i] == pin && gpioOutputLines[i]) {
+            gpiod_line_set_value(gpioOutputLines[i], value ? 1 : 0);
+            return;
+        }
+    }
 }
 
 HardwareParameters DryerHardware::readParameters() {

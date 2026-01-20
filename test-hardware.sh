@@ -53,13 +53,6 @@ echo ""
 # ============================================================================
 echo "[Test 3] GPIO Input Pins..."
 
-# Initialize pigpio if not running
-if ! systemctl is-active --quiet pigpiod; then
-    echo "  Starting pigpiod..."
-    systemctl start pigpiod
-    sleep 1
-fi
-
 TEST_PINS=(17 27 22)
 PIN_NAMES=("BALL_TYPE" "LINT_TRAP" "MOON_GRAVITY")
 
@@ -67,12 +60,8 @@ for i in "${!TEST_PINS[@]}"; do
     PIN=${TEST_PINS[$i]}
     NAME=${PIN_NAMES[$i]}
     
-    # Set as input with pull-down
-    gpio -g mode $PIN in
-    gpio -g mode $PIN down
-    
-    # Read value
-    VALUE=$(gpio -g read $PIN)
+    # Read value using gpioget
+    VALUE=$(gpioget gpiochip0 $PIN)
     
     echo "  GPIO $PIN ($NAME): $VALUE"
     echo "    0 = Switch OFF, 1 = Switch ON"
@@ -94,14 +83,12 @@ for i in "${!TRIGGER_PINS[@]}"; do
     PIN=${TRIGGER_PINS[$i]}
     NAME=${TRIGGER_NAMES[$i]}
     
-    # Set as output
-    gpio -g mode $PIN out
-    
-    # Test pulse
     echo "  Testing GPIO $PIN ($NAME)..."
-    gpio -g write $PIN 1
+    
+    # Test pulse using gpioset
+    gpioset gpiochip0 $PIN=1
     sleep 0.05
-    gpio -g write $PIN 0
+    gpioset gpiochip0 $PIN=0
     
     echo "    Sent 50ms test pulse"
 done

@@ -36,7 +36,7 @@ add_executable(dryer ${SOURCES} ${HEADERS})
 # Link libraries
 target_link_libraries(dryer 
     ${SDL2_LIBRARIES}
-    pigpio         # GPIO library for Raspberry Pi
+    gpiod          # libgpiod for GPIO
     pthread        # For threading (MIDI note off timing)
     m             # Math library
 )

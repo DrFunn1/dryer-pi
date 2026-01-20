@@ -1,8 +1,7 @@
 [Unit]
 Description=Dryer Eurorack Percussion Generator
 Documentation=https://github.com/DrFunn1/dryer-eurorack
-After=network.target pigpiod.service
-Requires=pigpiod.service
+After=network.target
 
 [Service]
 Type=simple

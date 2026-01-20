@@ -50,7 +50,10 @@ private:
     uint16_t readADC(uint8_t channel);
     bool initADS1115();
     
-    // GPIO
+    // GPIO - libgpiod
+    struct gpiod_chip *gpioChip;
+    struct gpiod_line *gpioInputLines[3];  // 3 switches
+    struct gpiod_line *gpioOutputLines[2]; // 2 triggers
     bool initGPIO();
     bool readGPIO(int pin);
     void writeGPIO(int pin, bool value);

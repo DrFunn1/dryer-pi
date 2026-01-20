@@ -11,7 +11,7 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -O3
 INCLUDES = -I/usr/include/SDL2
 
 # Libraries
-LIBS = -lSDL2 -lpigpio -lpthread -lm
+LIBS = -lSDL2 -lgpiod -lpthread -lm
 
 # Source files
 SOURCES = dryer-main.cpp \

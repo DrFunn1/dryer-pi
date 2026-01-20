@@ -1,0 +1,31 @@
+# Build artifacts
+*.o
+dryer
+build/
+*.tar.gz
+*.img
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/

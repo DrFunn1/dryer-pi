@@ -46,8 +46,8 @@ apt install -y \
     cmake \
     git \
     libsdl2-dev \
-    pigpio \
-    libpigpio-dev \
+    libgpiod-dev \
+    gpiod \
     i2c-tools \
     vim \
     htop
@@ -76,35 +76,32 @@ if ! grep -q "^dtoverlay=disable-bt" /boot/config.txt; then
     echo "  Disabled Bluetooth"
 fi
 
-# Set HDMI for 480x480 display
-if ! grep -q "^hdmi_group=2" /boot/config.txt; then
-    cat >> /boot/config.txt << EOF
+# Set HDMI for 480x480 display ONLY
+# Remove any existing HDMI config first
+sed -i '/^hdmi_group=/d' /boot/config.txt
+sed -i '/^hdmi_mode=/d' /boot/config.txt
+sed -i '/^hdmi_cvt=/d' /boot/config.txt
+sed -i '/^hdmi_force_hotplug=/d' /boot/config.txt
 
-# Dryer display settings (480x480)
+# Add clean round display config
+cat >> /boot/config.txt << EOF
+
+# Dryer 480x480 Round Display (ONLY display config)
 hdmi_group=2
 hdmi_mode=87
 hdmi_cvt=480 480 60 1 0 0 0
 hdmi_force_hotplug=1
+disable_overscan=1
 EOF
-    echo "  Configured HDMI for 480x480 display"
-fi
+echo "  Configured HDMI for 480x480 display ONLY"
 
 echo "✓ System interfaces configured"
 echo ""
 
 # ============================================================================
-# STEP 4: Start and Enable pigpiod
+# STEP 4: Build Dryer
 # ============================================================================
-echo "[4/8] Configuring GPIO daemon..."
-systemctl enable pigpiod
-systemctl start pigpiod
-echo "✓ pigpiod enabled and started"
-echo ""
-
-# ============================================================================
-# STEP 5: Build Dryer
-# ============================================================================
-echo "[5/8] Building Dryer..."
+echo "[4/7] Building Dryer..."
 
 # Use Makefile for simpler build
 make clean 2>/dev/null || true
@@ -119,17 +116,17 @@ echo "✓ Build complete"
 echo ""
 
 # ============================================================================
-# STEP 6: Install Binary
+# STEP 5: Install Binary
 # ============================================================================
-echo "[6/8] Installing dryer binary..."
+echo "[5/7] Installing dryer binary..."
 make install
 echo "✓ Binary installed to /usr/local/bin/dryer"
 echo ""
 
 # ============================================================================
-# STEP 7: Install Systemd Service
+# STEP 6: Install Systemd Service
 # ============================================================================
-echo "[7/8] Installing systemd service..."
+echo "[6/7] Installing systemd service..."
 
 cp dryer.service /etc/systemd/system/
 systemctl daemon-reload
@@ -139,9 +136,9 @@ echo "✓ Systemd service installed and enabled"
 echo ""
 
 # ============================================================================
-# STEP 8: Disable Unnecessary Services (Boot Time Optimization)
+# STEP 7: Disable Unnecessary Services (Boot Time Optimization)
 # ============================================================================
-echo "[8/8] Optimizing boot time..."
+echo "[7/7] Optimizing boot time..."
 
 systemctl disable bluetooth.service 2>/dev/null || true
 systemctl disable avahi-daemon.service 2>/dev/null || true

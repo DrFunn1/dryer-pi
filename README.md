@@ -66,15 +66,11 @@ sudo apt install -y build-essential cmake git
 # Install SDL2
 sudo apt install -y libsdl2-dev
 
-# Install pigpio library (for GPIO)
-sudo apt install -y pigpio libpigpio-dev
+# Install libgpiod (GPIO library)
+sudo apt install -y libgpiod-dev gpiod
 
 # Install I2C tools (for testing)
 sudo apt install -y i2c-tools
-
-# Start pigpio daemon
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
 ```
 
 ### 4. Verify Hardware Connections
