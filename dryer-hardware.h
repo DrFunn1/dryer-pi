@@ -4,17 +4,18 @@
 #include "pins.h"
 #include <cstdint>
 #include <functional>
-
-// ============================================================================
-// DRYER HARDWARE INTERFACE
-// Handles: ADS1115 ADC, GPIO, MIDI UART, Trigger outputs
-// ============================================================================
+#include <vector>
 
 // Forward declare libgpiod C++ types
 namespace gpiod { 
     class chip; 
     class line_request; 
 }
+
+// ============================================================================
+// DRYER HARDWARE INTERFACE
+// Handles: ADS1115 ADC, GPIO, MIDI UART, Trigger outputs
+// ============================================================================
 
 // Parameter structure read from hardware
 struct HardwareParameters {
@@ -58,8 +59,8 @@ private:
     
     // GPIO - libgpiod C++ API (v2)
     gpiod::chip *gpioChip;
-    gpiod::line_request *gpioInputLines[3];  // 3 switches
-    gpiod::line_request *gpioOutputLines[2]; // 2 triggers
+    std::vector<gpiod::line_request> gpioInputLines;   // 3 switches
+    std::vector<gpiod::line_request> gpioOutputLines;  // 2 triggers
     bool initGPIO();
     bool readGPIO(int pin);
     void writeGPIO(int pin, bool value);

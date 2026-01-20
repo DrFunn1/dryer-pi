@@ -32,14 +32,6 @@ DryerHardware::DryerHardware()
     , midiAvailable(false)
     , gpioChip(nullptr)
 {
-    // Initialize GPIO line pointers
-    for (int i = 0; i < 3; i++) {
-        gpioInputLines[i] = nullptr;
-    }
-    for (int i = 0; i < 2; i++) {
-        gpioOutputLines[i] = nullptr;
-    }
-    
     trigger1State.active = false;
     trigger2State.active = false;
 }
@@ -92,19 +84,9 @@ void DryerHardware::shutdown() {
         uartHandle = -1;
     }
     
-    // Release GPIO line requests
-    for (int i = 0; i < 3; i++) {
-        if (gpioInputLines[i]) {
-            delete gpioInputLines[i];
-            gpioInputLines[i] = nullptr;
-        }
-    }
-    for (int i = 0; i < 2; i++) {
-        if (gpioOutputLines[i]) {
-            delete gpioOutputLines[i];
-            gpioOutputLines[i] = nullptr;
-        }
-    }
+    // Clear GPIO vectors (line_request destructor handles cleanup)
+    gpioInputLines.clear();
+    gpioOutputLines.clear();
     
     // Close GPIO chip
     if (gpioChip) {
@@ -121,12 +103,15 @@ bool DryerHardware::initGPIO() {
         // Open GPIO chip (gpiochip0 for Raspberry Pi)
         gpioChip = new gpiod::chip("gpiochip0");
         
+        // Resize vectors to hold line requests
+        gpioInputLines.resize(3);
+        gpioOutputLines.resize(2);
+        
         // Configure input pins (switches) with pull-down
         const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
         
         for (int i = 0; i < 3; i++) {
-            gpioInputLines[i] = new gpiod::line_request();
-            *gpioInputLines[i] = gpioChip->prepare_request()
+            gpioInputLines[i] = gpioChip->prepare_request()
                 .set_consumer("dryer")
                 .add_line_settings(inputPins[i], 
                     gpiod::line_settings()
@@ -139,8 +124,7 @@ bool DryerHardware::initGPIO() {
         const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
         
         for (int i = 0; i < 2; i++) {
-            gpioOutputLines[i] = new gpiod::line_request();
-            *gpioOutputLines[i] = gpioChip->prepare_request()
+            gpioOutputLines[i] = gpioChip->prepare_request()
                 .set_consumer("dryer")
                 .add_line_settings(outputPins[i],
                     gpiod::line_settings()
@@ -273,8 +257,8 @@ bool DryerHardware::readGPIO(int pin) {
         const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
         
         for (int i = 0; i < 3; i++) {
-            if (inputPins[i] == pin && gpioInputLines[i]) {
-                auto value = gpioInputLines[i]->get_value(inputPins[i]);
+            if (inputPins[i] == pin && i < (int)gpioInputLines.size()) {
+                auto value = gpioInputLines[i].get_value(inputPins[i]);
                 return value == gpiod::line::value::ACTIVE;
             }
         }
@@ -289,8 +273,8 @@ void DryerHardware::writeGPIO(int pin, bool value) {
         const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
         
         for (int i = 0; i < 2; i++) {
-            if (outputPins[i] == pin && gpioOutputLines[i]) {
-                gpioOutputLines[i]->set_value(outputPins[i], 
+            if (outputPins[i] == pin && i < (int)gpioOutputLines.size()) {
+                gpioOutputLines[i].set_value(outputPins[i], 
                     value ? gpiod::line::value::ACTIVE : gpiod::line::value::INACTIVE);
                 return;
             }
