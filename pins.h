@@ -1,3 +1,4 @@
+#include <cstdint>
 #ifndef PINS_H
 #define PINS_H
 

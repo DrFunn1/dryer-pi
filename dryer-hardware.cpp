@@ -7,7 +7,7 @@
 #include <termios.h>
 #include <chrono>
 #include <thread>
-#include <gpiod.h>
+#include <gpiod.hpp>
 #include <cstring>
 
 // ADS1115 Register addresses
@@ -15,14 +15,14 @@
 #define ADS1115_REG_CONFIG      0x01
 
 // ADS1115 Config register bits
-#define ADS1115_OS_SINGLE       0x8000  // Start single conversion
-#define ADS1115_MUX_AIN0        0x4000  // Single-ended AIN0
-#define ADS1115_MUX_AIN1        0x5000  // Single-ended AIN1
-#define ADS1115_MUX_AIN2        0x6000  // Single-ended AIN2
-#define ADS1115_MUX_AIN3        0x7000  // Single-ended AIN3
-#define ADS1115_PGA_4_096V      0x0200  // +/-4.096V range
-#define ADS1115_MODE_SINGLE     0x0100  // Single-shot mode
-#define ADS1115_DR_128SPS       0x0080  // 128 samples per second
+#define ADS1115_OS_SINGLE       0x8000
+#define ADS1115_MUX_AIN0        0x4000
+#define ADS1115_MUX_AIN1        0x5000
+#define ADS1115_MUX_AIN2        0x6000
+#define ADS1115_MUX_AIN3        0x7000
+#define ADS1115_PGA_4_096V      0x0200
+#define ADS1115_MODE_SINGLE     0x0100
+#define ADS1115_DR_128SPS       0x0080
 
 DryerHardware::DryerHardware() 
     : i2cHandle(-1)
@@ -74,7 +74,7 @@ bool DryerHardware::initialize() {
     std::cout << "  ADS1115: " << (adsOk ? "OK" : "NOT FOUND") << std::endl;
     std::cout << "  MIDI: " << (midiOk ? "OK" : "NOT AVAILABLE") << std::endl;
     
-    return gpioOk;  // GPIO is minimum requirement
+    return gpioOk;
 }
 
 void DryerHardware::shutdown() {
@@ -92,23 +92,23 @@ void DryerHardware::shutdown() {
         uartHandle = -1;
     }
     
-    // Release GPIO lines
+    // Release GPIO line requests
     for (int i = 0; i < 3; i++) {
         if (gpioInputLines[i]) {
-            gpiod_line_release(gpioInputLines[i]);
+            delete gpioInputLines[i];
             gpioInputLines[i] = nullptr;
         }
     }
     for (int i = 0; i < 2; i++) {
         if (gpioOutputLines[i]) {
-            gpiod_line_release(gpioOutputLines[i]);
+            delete gpioOutputLines[i];
             gpioOutputLines[i] = nullptr;
         }
     }
     
     // Close GPIO chip
     if (gpioChip) {
-        gpiod_chip_close(gpioChip);
+        delete gpioChip;
         gpioChip = nullptr;
     }
     
@@ -117,47 +117,44 @@ void DryerHardware::shutdown() {
 }
 
 bool DryerHardware::initGPIO() {
-    // Open GPIO chip (gpiochip0 for Raspberry Pi)
-    gpioChip = gpiod_chip_open("/dev/gpiochip0");
-    if (!gpioChip) {
-        std::cerr << "Failed to open GPIO chip" << std::endl;
+    try {
+        // Open GPIO chip (gpiochip0 for Raspberry Pi)
+        gpioChip = new gpiod::chip("gpiochip0");
+        
+        // Configure input pins (switches) with pull-down
+        const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
+        
+        for (int i = 0; i < 3; i++) {
+            gpioInputLines[i] = new gpiod::line_request();
+            *gpioInputLines[i] = gpioChip->prepare_request()
+                .set_consumer("dryer")
+                .add_line_settings(inputPins[i], 
+                    gpiod::line_settings()
+                        .set_direction(gpiod::line::direction::INPUT)
+                        .set_bias(gpiod::line::bias::PULL_DOWN))
+                .do_request();
+        }
+        
+        // Configure output pins (triggers) initially low
+        const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
+        
+        for (int i = 0; i < 2; i++) {
+            gpioOutputLines[i] = new gpiod::line_request();
+            *gpioOutputLines[i] = gpioChip->prepare_request()
+                .set_consumer("dryer")
+                .add_line_settings(outputPins[i],
+                    gpiod::line_settings()
+                        .set_direction(gpiod::line::direction::OUTPUT)
+                        .set_output_value(gpiod::line::value::INACTIVE))
+                .do_request();
+        }
+        
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "GPIO initialization error: " << e.what() << std::endl;
         return false;
     }
-    
-    // Configure input pins (switches)
-    const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
-    for (int i = 0; i < 3; i++) {
-        gpioInputLines[i] = gpiod_chip_get_line(gpioChip, inputPins[i]);
-        if (!gpioInputLines[i]) {
-            std::cerr << "Failed to get GPIO line " << inputPins[i] << std::endl;
-            return false;
-        }
-        
-        // Request as input with pull-down
-        if (gpiod_line_request_input_flags(gpioInputLines[i], "dryer", 
-                                           GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN) < 0) {
-            std::cerr << "Failed to request input line " << inputPins[i] << std::endl;
-            return false;
-        }
-    }
-    
-    // Configure output pins (triggers)
-    const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
-    for (int i = 0; i < 2; i++) {
-        gpioOutputLines[i] = gpiod_chip_get_line(gpioChip, outputPins[i]);
-        if (!gpioOutputLines[i]) {
-            std::cerr << "Failed to get GPIO line " << outputPins[i] << std::endl;
-            return false;
-        }
-        
-        // Request as output, initially low
-        if (gpiod_line_request_output(gpioOutputLines[i], "dryer", 0) < 0) {
-            std::cerr << "Failed to request output line " << outputPins[i] << std::endl;
-            return false;
-        }
-    }
-    
-    return true;
 }
 
 bool DryerHardware::initADS1115() {
@@ -193,18 +190,16 @@ bool DryerHardware::initMIDI() {
         return false;
     }
     
-    // Set baud rate to 31250 (MIDI standard)
-    // Note: 38400 baud is often used as it's closest standard rate
-    // For true 31.25k, you may need custom clock divisor
+    // Set baud rate to 38400 (closest to 31250)
     cfsetospeed(&tty, B38400);
     
     // 8N1 mode
-    tty.c_cflag &= ~PARENB;         // No parity
-    tty.c_cflag &= ~CSTOPB;         // 1 stop bit
+    tty.c_cflag &= ~PARENB;
+    tty.c_cflag &= ~CSTOPB;
     tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;             // 8 bits
-    tty.c_cflag &= ~CRTSCTS;        // No hardware flow control
-    tty.c_cflag |= CLOCAL | CWRITE; // Ignore modem controls, enable writing
+    tty.c_cflag |= CS8;
+    tty.c_cflag &= ~CRTSCTS;
+    tty.c_cflag |= CLOCAL | CREAD;
     
     // Raw mode
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
@@ -223,16 +218,15 @@ bool DryerHardware::initMIDI() {
 
 uint16_t DryerHardware::readADC(uint8_t channel) {
     if (!ads1115Available) {
-        return ADC_MAX_VALUE / 2;  // Return mid-scale
+        return ADC_MAX_VALUE / 2;
     }
     
     // Select channel
-    uint16_t config = ADS1115_OS_SINGLE |      // Start conversion
-                     ADS1115_PGA_4_096V |       // ±4.096V range
-                     ADS1115_MODE_SINGLE |      // Single-shot
-                     ADS1115_DR_128SPS;         // 128 SPS
+    uint16_t config = ADS1115_OS_SINGLE |
+                     ADS1115_PGA_4_096V |
+                     ADS1115_MODE_SINGLE |
+                     ADS1115_DR_128SPS;
     
-    // Set MUX based on channel
     switch(channel) {
         case 0: config |= ADS1115_MUX_AIN0; break;
         case 1: config |= ADS1115_MUX_AIN1; break;
@@ -252,8 +246,8 @@ uint16_t DryerHardware::readADC(uint8_t channel) {
         return 0;
     }
     
-    // Wait for conversion (max 8ms @ 128 SPS)
-    usleep(10000);  // 10ms
+    // Wait for conversion
+    usleep(10000);
     
     // Read conversion register
     uint8_t reg = ADS1115_REG_CONVERSION;
@@ -268,32 +262,41 @@ uint16_t DryerHardware::readADC(uint8_t channel) {
     
     uint16_t value = (readBuffer[0] << 8) | readBuffer[1];
     
-    // Convert to positive range (ADS1115 is signed)
-    // For 0-3.3V input with 4.096V reference, we want 0-26400 range
-    if (value > 32768) value = 0;  // Clip negative values
+    // Clip negative values
+    if (value > 32768) value = 0;
     
     return value;
 }
 
 bool DryerHardware::readGPIO(int pin) {
-    // Map pin number to line index
-    const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
-    for (int i = 0; i < 3; i++) {
-        if (inputPins[i] == pin && gpioInputLines[i]) {
-            return gpiod_line_get_value(gpioInputLines[i]) == 1;
+    try {
+        const int inputPins[] = {GPIO_BALL_TYPE, GPIO_LINT_TRAP, GPIO_MOON_GRAVITY};
+        
+        for (int i = 0; i < 3; i++) {
+            if (inputPins[i] == pin && gpioInputLines[i]) {
+                auto value = gpioInputLines[i]->get_value(inputPins[i]);
+                return value == gpiod::line::value::ACTIVE;
+            }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "GPIO read error: " << e.what() << std::endl;
     }
     return false;
 }
 
 void DryerHardware::writeGPIO(int pin, bool value) {
-    // Map pin number to line index
-    const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
-    for (int i = 0; i < 2; i++) {
-        if (outputPins[i] == pin && gpioOutputLines[i]) {
-            gpiod_line_set_value(gpioOutputLines[i], value ? 1 : 0);
-            return;
+    try {
+        const int outputPins[] = {GPIO_TRIGGER_OUT_1, GPIO_TRIGGER_OUT_2};
+        
+        for (int i = 0; i < 2; i++) {
+            if (outputPins[i] == pin && gpioOutputLines[i]) {
+                gpioOutputLines[i]->set_value(outputPins[i], 
+                    value ? gpiod::line::value::ACTIVE : gpiod::line::value::INACTIVE);
+                return;
+            }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "GPIO write error: " << e.what() << std::endl;
     }
 }
 
@@ -311,7 +314,7 @@ HardwareParameters DryerHardware::readParameters() {
     
     // Vanes need to be integer
     float vanesFloat = mapADCToRange(vanesADC, ParamRanges::VANES_MIN, ParamRanges::VANES_MAX);
-    params.vanes = static_cast<int>(vanesFloat + 0.5f);  // Round to nearest
+    params.vanes = static_cast<int>(vanesFloat + 0.5f);
     
     params.vaneHeight = mapADCToRange(heightADC, ParamRanges::VANE_HEIGHT_MIN, ParamRanges::VANE_HEIGHT_MAX);
     
@@ -332,22 +335,19 @@ void DryerHardware::sendMIDIByte(uint8_t byte) {
 void DryerHardware::sendMIDINoteOn(uint8_t noteNumber, uint8_t velocity, uint8_t channel) {
     if (!midiAvailable) return;
     
-    uint8_t statusByte = 0x90 | (channel & 0x0F);  // Note On
+    uint8_t statusByte = 0x90 | (channel & 0x0F);
     sendMIDIByte(statusByte);
     sendMIDIByte(noteNumber & 0x7F);
     sendMIDIByte(velocity & 0x7F);
-    
-    // Debug output
-    // std::cout << "MIDI: Note On " << (int)noteNumber << " vel=" << (int)velocity << std::endl;
 }
 
 void DryerHardware::sendMIDINoteOff(uint8_t noteNumber, uint8_t channel) {
     if (!midiAvailable) return;
     
-    uint8_t statusByte = 0x80 | (channel & 0x0F);  // Note Off
+    uint8_t statusByte = 0x80 | (channel & 0x0F);
     sendMIDIByte(statusByte);
     sendMIDIByte(noteNumber & 0x7F);
-    sendMIDIByte(0);  // Velocity 0
+    sendMIDIByte(0);
 }
 
 void DryerHardware::triggerPulse(int triggerPin, int durationMs) {

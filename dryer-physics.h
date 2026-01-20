@@ -1,3 +1,4 @@
+#include <cstdint>
 #ifndef DRYER_PHYSICS_H
 #define DRYER_PHYSICS_H
 
