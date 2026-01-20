@@ -10,6 +10,12 @@
 // Handles: ADS1115 ADC, GPIO, MIDI UART, Trigger outputs
 // ============================================================================
 
+// Forward declare libgpiod C++ types
+namespace gpiod { 
+    class chip; 
+    class line_request; 
+}
+
 // Parameter structure read from hardware
 struct HardwareParameters {
     float rpm;
@@ -51,7 +57,6 @@ private:
     bool initADS1115();
     
     // GPIO - libgpiod C++ API (v2)
-    namespace gpiod { class chip; class line_request; }
     gpiod::chip *gpioChip;
     gpiod::line_request *gpioInputLines[3];  // 3 switches
     gpiod::line_request *gpioOutputLines[2]; // 2 triggers
